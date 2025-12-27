@@ -20,6 +20,8 @@ struct LogInteractionView: View {
     @State private var showingDatePicker = false
     @State private var date: Date = Date()
     @State private var noteContent: String = ""
+    @State private var isHighlightMode: Bool = false
+    @State private var highlightedTexts: Set<String> = []
     
     // フォーカス管理
     @FocusState private var isMemoFocused: Bool
@@ -86,39 +88,63 @@ struct LogInteractionView: View {
                 Divider()
                     .padding(.horizontal, 20)
                 
-                // Editor Area (Body)
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ZStack(alignment: .topLeading) {
-                            // Placeholder
-                            if noteContent.isEmpty {
-                                Text("ここに会話の内容やメモを自由に書いてください...")
-                                    .font(.system(size: 17, weight: .regular, design: .rounded))
-                                    .foregroundColor(.secondary.opacity(0.4))
-                                    .padding(.horizontal, 20)
-                                    .padding(.top, 20)
+                // Editor Area (Body) - Mode Switch
+                ZStack {
+                    if isHighlightMode {
+                        // Highlight Mode: Interactive Log View
+                        if noteContent.isEmpty {
+                            VStack {
+                                Spacer()
+                                Text("テキストを入力してから\nハイライトモードに切り替えてください")
+                                    .font(.system(size: 16, weight: .regular, design: .rounded))
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                                Spacer()
                             }
-                            
-                            // Text Editor
-                            TextEditor(text: $noteContent)
-                                .font(.system(size: 17, weight: .regular, design: .rounded))
-                                .foregroundColor(Color.primaryText(for: colorScheme))
-                                .scrollContentBackground(.hidden)
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 16)
-                                .focused($isMemoFocused)
-                                .lineSpacing(6)
-                                .onChange(of: noteContent) { oldValue, newValue in
-                                    // タイピング時の触覚フィードバック（微細）
-                                    if newValue.count > oldValue.count {
-                                        let softFeedback = UIImpactFeedbackGenerator(style: .soft)
-                                        softFeedback.impactOccurred()
-                                    }
-                                }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            InteractiveLogView(
+                                text: $noteContent,
+                                highlightedTexts: $highlightedTexts
+                            )
                         }
-                        .frame(minHeight: 400)
+                    } else {
+                        // Writing Mode: Text Editor
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 0) {
+                                ZStack(alignment: .topLeading) {
+                                    // Placeholder
+                                    if noteContent.isEmpty {
+                                        Text("ここに会話の内容やメモを自由に書いてください...")
+                                            .font(.system(size: 17, weight: .regular, design: .rounded))
+                                            .foregroundColor(.secondary.opacity(0.4))
+                                            .padding(.horizontal, 20)
+                                            .padding(.top, 20)
+                                    }
+                                    
+                                    // Text Editor
+                                    TextEditor(text: $noteContent)
+                                        .font(.system(size: 17, weight: .regular, design: .rounded))
+                                        .foregroundColor(Color.primaryText(for: colorScheme))
+                                        .scrollContentBackground(.hidden)
+                                        .padding(.horizontal, 20)
+                                        .padding(.vertical, 16)
+                                        .focused($isMemoFocused)
+                                        .lineSpacing(6)
+                                        .onChange(of: noteContent) { oldValue, newValue in
+                                            // タイピング時の触覚フィードバック（微細）
+                                            if newValue.count > oldValue.count {
+                                                let softFeedback = UIImpactFeedbackGenerator(style: .soft)
+                                                softFeedback.impactOccurred()
+                                            }
+                                        }
+                                }
+                                .frame(minHeight: 400)
+                            }
+                        }
                     }
                 }
+                .animation(.easeInOut(duration: 0.3), value: isHighlightMode)
             }
             .background(Color.appBackground(for: colorScheme))
             .navigationBarTitleDisplayMode(.inline)
@@ -134,14 +160,38 @@ struct LogInteractionView: View {
                 }
                 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        saveMeeting()
-                    }) {
-                        Text("完了")
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundColor(canSave ? Color.brandPrimary : .secondary)
+                    HStack(spacing: 16) {
+                        // モード切替ボタン
+                        Button(action: {
+                            // ハイライトモードに切り替える場合はキーボードを閉じる
+                            if !isHighlightMode {
+                                isMemoFocused = false
+                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                            }
+                            
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                isHighlightMode.toggle()
+                            }
+                            
+                            // 触覚フィードバック
+                            let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                            impactFeedback.impactOccurred()
+                        }) {
+                            Image(systemName: isHighlightMode ? "pencil" : "highlighter")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundColor(Color.primaryText(for: colorScheme))
+                        }
+                        
+                        // 完了ボタン
+                        Button(action: {
+                            saveMeeting()
+                        }) {
+                            Text("完了")
+                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                .foregroundColor(canSave ? Color.brandPrimary : .secondary)
+                        }
+                        .disabled(!canSave)
                     }
-                    .disabled(!canSave)
                 }
             }
             .sheet(isPresented: $showingPersonPicker) {
@@ -170,11 +220,13 @@ struct LogInteractionView: View {
         let meeting = Meeting(date: date, location: "", isFuture: isFuture, person: person)
         modelContext.insert(meeting)
         
-        // メモを追加
+        // メモを追加（ハイライト情報を含む）
+        let highlightedArray = Array(highlightedTexts)
         let note = Note(
             content: noteContent,
             isImportant: false,
             category: "",
+            highlightedTexts: highlightedArray,
             meeting: meeting,
             createdAt: date
         )

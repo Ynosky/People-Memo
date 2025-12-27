@@ -14,7 +14,6 @@ struct HomeView: View {
     @Query(sort: \Person.createdAt, order: .reverse) private var people: [Person]
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.modelContext) private var modelContext
-    @State private var showingAddModal = false
     @State private var isGenerating = false
     @State private var showSuccess = false
     @State private var selectedTag: String? = nil
@@ -44,40 +43,7 @@ struct HomeView: View {
                 
                 ScrollView {
                     VStack(spacing: 0) {
-                        // Quick Capture Section
-                        VStack(spacing: 16) {
-                        Button(action: {
-                            showingAddModal = true
-                        }) {
-                            HStack {
-                                Text("誰と会いましたか？")
-                                    .font(.system(size: 20, weight: .medium, design: .rounded))
-                                    .foregroundColor(Color.primaryText(for: colorScheme))
-                                
-                                Spacer()
-                                
-                                Image(systemName: "plus.circle.fill")
-                                    .font(.system(size: 24, weight: .medium, design: .rounded))
-                                    .foregroundColor(.brandPrimary)
-                            }
-                            .padding(20)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(Color.cardBackground(for: colorScheme))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 16)
-                                            .stroke(Color.cardBorder(for: colorScheme), lineWidth: 1)
-                                    )
-                                    .shadow(color: colorScheme == .dark ? Color.clear : Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
-                            )
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
-                    .padding(.bottom, 32)
-                    
-                    // Recent Memos Timeline
+                        // Recent Memos Timeline
                     if !recentNotes.isEmpty {
                         VStack(alignment: .leading, spacing: 0) {
                             // Section Header
@@ -129,9 +95,6 @@ struct HomeView: View {
                 }
             }
             .background(Color.appBackground(for: colorScheme))
-            .sheet(isPresented: $showingAddModal) {
-                QuickAddView()
-            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: {

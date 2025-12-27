@@ -17,9 +17,10 @@ final class Note {
     var createdAt: Date
     var lastReviewedAt: Date? // 最後に振り返りで確認した日時
     var reviewCount: Int // 振り返り回数
+    var highlightedTexts: [String] // ハイライトされたテキストブロックのリスト
     var meeting: Meeting?
     
-    init(content: String, isImportant: Bool = false, category: String = "", meeting: Meeting? = nil, createdAt: Date = Date()) {
+    init(content: String, isImportant: Bool = false, category: String = "", highlightedTexts: [String] = [], meeting: Meeting? = nil, createdAt: Date = Date()) {
         self.id = UUID()
         self.content = content
         self.isImportant = isImportant
@@ -27,6 +28,7 @@ final class Note {
         self.createdAt = createdAt
         self.lastReviewedAt = nil
         self.reviewCount = 0
+        self.highlightedTexts = highlightedTexts
         self.meeting = meeting
     }
 }

@@ -10,80 +10,101 @@ import SwiftData
 import UIKit
 
 struct GalaxyView: View {
-    let people: [Person]
+    @Query(sort: \Person.createdAt, order: .reverse) private var people: [Person]
+    @Environment(\.colorScheme) var colorScheme
     
     @State private var layoutResult: LayoutResult?
     @State private var hoveredPersonId: UUID?
     @State private var dragLocation: CGPoint?
-    @State private var starPositions: [(CGPoint, CGFloat)] = []
     @State private var isCalculating = false
     
-    // タグごとの色（ライトモード用：彩度の高い色）
-    private func colorForTag(_ tag: String) -> Color {
-        switch tag {
-        case "Work":
-            return Color(red: 0.0, green: 0.7, blue: 0.9) // 濃いCyan
-        case "Hobby":
-            return Color(red: 1.0, green: 0.5, blue: 0.0) // 濃いOrange
-        case "School":
-            return Color(red: 0.6, green: 0.2, blue: 0.8) // 濃いPurple
-        case "Family":
-            return Color(red: 1.0, green: 0.3, blue: 0.6) // 濃いPink
-        case "Drinking Buddy":
-            return Color(red: 1.0, green: 0.8, blue: 0.0) // 濃いYellow
-        default:
-            return Color.gray
-        }
-    }
+    // ズームとパン用の状態
+    @State private var scale: CGFloat = 1.0
+    @State private var lastScale: CGFloat = 1.0
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+    
+    // ブランドカラー（Electric Indigo）
+    private let brandIndigo = Color(hex: "5856D6")
     
     var body: some View {
         GeometryReader { geometry in
-            let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
-            let maxRadius = min(geometry.size.width, geometry.size.height) / 2 - 40
-            
             ZStack {
-                // 背景
-                backgroundLayer(maxRadius: maxRadius)
+                // アダプティブ背景
+                Color.appBackground(for: colorScheme)
+                    .ignoresSafeArea()
                 
                 // 計算中インジケーター
                 if isCalculating {
                     ProgressView()
                         .scaleEffect(1.5)
-                        .tint(.gray)
+                        .tint(brandIndigo)
                 }
                 
                 // Canvasで描画
                 if let layoutResult = layoutResult {
                     Canvas { context, size in
-                        // 星の装飾
-                        drawStars(context: &context, size: size)
-                        
-                        // 同心円の軌道線
-                        drawOrbitLines(context: &context, center: center, maxRadius: maxRadius)
-                        
-                        // セクター線
-                        drawSectorLines(
+                        // 接続線（極めて細く、透明度高め）
+                        drawConnections(
                             context: &context,
-                            center: center,
-                            maxRadius: maxRadius,
-                            allTags: layoutResult.allTags
+                            nodes: layoutResult.nodes
                         )
                         
-                        // 中心の太陽
-                        drawSun(context: &context, center: center)
-                        
-                        // ドットを描画
-                        drawDots(
+                        // ノード（星）を描画
+                        drawNodes(
                             context: &context,
                             nodes: layoutResult.nodes,
                             hoveredPersonId: hoveredPersonId
                         )
                     }
+                    .scaleEffect(scale)
+                    .offset(offset)
                     .gesture(
+                        SimultaneousGesture(
+                            // ズームジェスチャー
+                            MagnificationGesture()
+                                .onChanged { value in
+                                    scale = lastScale * value
+                                }
+                                .onEnded { _ in
+                                    lastScale = scale
+                                    // ズーム範囲を制限（0.5x - 3.0x）
+                                    if scale < 0.5 {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                            scale = 0.5
+                                            lastScale = 0.5
+                                        }
+                                    } else if scale > 3.0 {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                            scale = 3.0
+                                            lastScale = 3.0
+                                        }
+                                    }
+                                },
+                            // パンジェスチャー
+                            DragGesture()
+                                .onChanged { value in
+                                    offset = CGSize(
+                                        width: lastOffset.width + value.translation.width,
+                                        height: lastOffset.height + value.translation.height
+                                    )
+                                }
+                                .onEnded { _ in
+                                    lastOffset = offset
+                                }
+                        )
+                    )
+                    .simultaneousGesture(
+                        // タップでホバー検知
                         DragGesture(minimumDistance: 0)
                             .onChanged { value in
+                                // スケールとオフセットを考慮した座標変換
+                                let transformedLocation = CGPoint(
+                                    x: (value.location.x - offset.width) / scale,
+                                    y: (value.location.y - offset.height) / scale
+                                )
                                 dragLocation = value.location
-                                updateHoveredPerson(at: value.location, nodes: layoutResult.nodes)
+                                updateHoveredPerson(at: transformedLocation, nodes: layoutResult.nodes)
                             }
                             .onEnded { _ in
                                 dragLocation = nil
@@ -115,130 +136,97 @@ struct GalaxyView: View {
             .task(id: people.count) {
                 await calculateLayout(size: geometry.size)
             }
+            .onTapGesture(count: 2) {
+                // ダブルタップでリセット
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                    scale = 1.0
+                    lastScale = 1.0
+                    offset = .zero
+                    lastOffset = .zero
+                }
+            }
         }
     }
     
     // MARK: - Drawing Functions
     
-    private func drawStars(context: inout GraphicsContext, size: CGSize) {
-        // 星を描画（ダークモード用：白い点）
-        for (position, starSize) in starPositions {
-            context.fill(
-                Path(ellipseIn: CGRect(
-                    x: position.x - starSize/2,
-                    y: position.y - starSize/2,
-                    width: starSize,
-                    height: starSize
-                )),
-                with: .color(.white.opacity(0.3))
-            )
-        }
-    }
-    
-    private func drawOrbitLines(context: inout GraphicsContext, center: CGPoint, maxRadius: CGFloat) {
-        for index in 0..<4 {
-            let radius = (maxRadius / 4) * CGFloat(index + 1)
-            var path = Path()
-            path.addEllipse(in: CGRect(
-                x: center.x - radius,
-                y: center.y - radius,
-                width: radius * 2,
-                height: radius * 2
-            ))
-            
-            context.stroke(
-                path,
-                with: .color(.white.opacity(0.15)),
-                lineWidth: 0.5
-            )
-        }
-    }
-    
-    private func drawSectorLines(
+    /// 接続線を描画（極めて細く、透明度高め）
+    private func drawConnections(
         context: inout GraphicsContext,
-        center: CGPoint,
-        maxRadius: CGFloat,
-        allTags: [String]
+        nodes: [RenderNode]
     ) {
-        for (index, tag) in allTags.enumerated() {
-            let angle = (Double(index) / Double(allTags.count)) * 2 * .pi - .pi / 2
-            let endPoint = CGPoint(
-                x: center.x + CGFloat(cos(angle)) * maxRadius,
-                y: center.y + CGFloat(sin(angle)) * maxRadius
-            )
-            
+        // タグが同じノード同士を接続
+        var connections: [(CGPoint, CGPoint)] = []
+        
+        for (index, node1) in nodes.enumerated() {
+            for node2 in nodes[(index + 1)...] where node1.tag == node2.tag {
+                connections.append((node1.position, node2.position))
+            }
+        }
+        
+        // 接続線を描画
+        for (start, end) in connections {
             var path = Path()
-            path.move(to: center)
-            path.addLine(to: endPoint)
+            path.move(to: start)
+            path.addLine(to: end)
             
             context.stroke(
                 path,
-                with: .color(colorForTag(tag).opacity(0.3)),
+                with: .color(brandIndigo.opacity(0.2)),
                 lineWidth: 0.5
             )
         }
     }
     
-    private func drawSun(context: inout GraphicsContext, center: CGPoint) {
-        // 太陽（ライトモード用：薄い黄色の円）
-        let sunRadius: CGFloat = 12
-        var sunPath = Path()
-        sunPath.addEllipse(in: CGRect(
-            x: center.x - sunRadius,
-            y: center.y - sunRadius,
-            width: sunRadius * 2,
-            height: sunRadius * 2
-        ))
-        
-        context.fill(
-            sunPath,
-            with: .color(Color.auroraYellow.opacity(0.6))
-        )
-        
-        context.stroke(
-            sunPath,
-            with: .color(Color.auroraYellow),
-            lineWidth: 1.5
-        )
-    }
-    
-    private func drawDots(
+    /// ノード（星）を描画
+    private func drawNodes(
         context: inout GraphicsContext,
         nodes: [RenderNode],
         hoveredPersonId: UUID?
     ) {
         for node in nodes {
             let isHovered = node.id == hoveredPersonId
-            let dotSize = isHovered ? node.size * 1.5 : node.size
+            let nodeSize = isHovered ? max(node.size * 1.5, 4) : max(node.size, 2)
             
-            // ドット本体（ソリッドカラー、エフェクト削除で軽量化）
-            var dotPath = Path()
-            dotPath.addEllipse(in: CGRect(
-                x: node.position.x - dotSize / 2,
-                y: node.position.y - dotSize / 2,
-                width: dotSize,
-                height: dotSize
+            // ノード本体（Electric Indigo、シャープに）
+            var nodePath = Path()
+            nodePath.addEllipse(in: CGRect(
+                x: node.position.x - nodeSize / 2,
+                y: node.position.y - nodeSize / 2,
+                width: nodeSize,
+                height: nodeSize
             ))
             
-            // ドット本体（高彩度の色）
-            context.fill(dotPath, with: .color(node.color))
+            // ノードを描画（ブランドカラー）
+            context.fill(nodePath, with: .color(brandIndigo))
             
-            // ネオンボーダー（輪郭を明確に）
-            context.stroke(
-                dotPath,
-                with: .color(node.color.opacity(0.8)),
-                lineWidth: 1.0
-            )
+            // ホバー時は発光エフェクト
+            if isHovered {
+                context.stroke(
+                    nodePath,
+                    with: .color(brandIndigo.opacity(0.8)),
+                    lineWidth: 1.0
+                )
+                
+                // 発光エフェクト（シャドウ）
+                var glowPath = Path()
+                glowPath.addEllipse(in: CGRect(
+                    x: node.position.x - nodeSize / 2 - 2,
+                    y: node.position.y - nodeSize / 2 - 2,
+                    width: nodeSize + 4,
+                    height: nodeSize + 4
+                ))
+                
+                context.stroke(
+                    glowPath,
+                    with: .color(brandIndigo.opacity(0.3)),
+                    lineWidth: 2.0
+                )
+            }
         }
     }
     
     // MARK: - Helper Functions
-    
-    private func backgroundLayer(maxRadius: CGFloat) -> some View {
-        // ダーク背景（親の背景を使用）
-        Color.clear
-            .ignoresSafeArea()
-    }
     
     /// 非同期でレイアウトを計算
     private func calculateLayout(size: CGSize) async {
@@ -252,29 +240,280 @@ struct GalaxyView: View {
             size: size
         )
         
-        // 星の位置を生成
-        let stars = generateStarPositions(size: size, count: 30)
-        
         // メインスレッドで更新
         await MainActor.run {
             self.layoutResult = result
-            self.starPositions = stars
             self.isCalculating = false
         }
     }
     
-    private func generateStarPositions(size: CGSize, count: Int) -> [(CGPoint, CGFloat)] {
-        var positions: [(CGPoint, CGFloat)] = []
-        for _ in 0..<count {
-            positions.append((
-                CGPoint(
-                    x: CGFloat.random(in: 0...size.width),
-                    y: CGFloat.random(in: 0...size.height)
-                ),
-                CGFloat.random(in: 1...2)
-            ))
+    private func updateHoveredPerson(at location: CGPoint, nodes: [RenderNode]) {
+        let threshold: CGFloat = 30 // 検知範囲
+        
+        var closestPersonId: UUID?
+        var closestDistance: CGFloat = CGFloat.infinity
+        
+        for node in nodes {
+            let distance = sqrt(
+                pow(location.x - node.position.x, 2) +
+                pow(location.y - node.position.y, 2)
+            )
+            
+            if distance < threshold && distance < closestDistance {
+                closestDistance = distance
+                closestPersonId = node.id
+            }
         }
-        return positions
+        
+        if closestPersonId != hoveredPersonId {
+            hoveredPersonId = closestPersonId
+            
+            // Haptic Feedback
+            if closestPersonId != nil {
+                let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                impactFeedback.impactOccurred()
+            }
+        }
+    }
+}
+
+// MARK: - Compact Version (for TokyoView)
+
+struct CompactGalaxyView: View {
+    @Query(sort: \Person.createdAt, order: .reverse) private var people: [Person]
+    @Environment(\.colorScheme) var colorScheme
+    
+    @State private var layoutResult: LayoutResult?
+    @State private var hoveredPersonId: UUID?
+    @State private var dragLocation: CGPoint?
+    @State private var isCalculating = false
+    
+    // ズームとパン用の状態
+    @State private var scale: CGFloat = 1.0
+    @State private var lastScale: CGFloat = 1.0
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+    
+    // ブランドカラー（Electric Indigo）
+    private let brandIndigo = Color(hex: "5856D6")
+    
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                // 背景は透明（親の背景を使用）
+                Color.clear
+                
+                // 計算中インジケーター
+                if isCalculating {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .tint(brandIndigo)
+                }
+                
+                // Canvasで描画
+                if let layoutResult = layoutResult {
+                    Canvas { context, size in
+                        // 接続線（極めて細く、透明度高め）
+                        drawConnections(
+                            context: &context,
+                            nodes: layoutResult.nodes
+                        )
+                        
+                        // ノード（星）を描画
+                        drawNodes(
+                            context: &context,
+                            nodes: layoutResult.nodes,
+                            hoveredPersonId: hoveredPersonId
+                        )
+                    }
+                    .scaleEffect(scale)
+                    .offset(offset)
+                    .gesture(
+                        SimultaneousGesture(
+                            // ズームジェスチャー
+                            MagnificationGesture()
+                                .onChanged { value in
+                                    scale = lastScale * value
+                                }
+                                .onEnded { _ in
+                                    lastScale = scale
+                                    // ズーム範囲を制限（0.5x - 3.0x）
+                                    if scale < 0.5 {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                            scale = 0.5
+                                            lastScale = 0.5
+                                        }
+                                    } else if scale > 3.0 {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                            scale = 3.0
+                                            lastScale = 3.0
+                                        }
+                                    }
+                                },
+                            // パンジェスチャー
+                            DragGesture()
+                                .onChanged { value in
+                                    offset = CGSize(
+                                        width: lastOffset.width + value.translation.width,
+                                        height: lastOffset.height + value.translation.height
+                                    )
+                                }
+                                .onEnded { _ in
+                                    lastOffset = offset
+                                }
+                        )
+                    )
+                    .simultaneousGesture(
+                        // タップでホバー検知
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                // スケールとオフセットを考慮した座標変換
+                                let transformedLocation = CGPoint(
+                                    x: (value.location.x - offset.width) / scale,
+                                    y: (value.location.y - offset.height) / scale
+                                )
+                                dragLocation = value.location
+                                updateHoveredPerson(at: transformedLocation, nodes: layoutResult.nodes)
+                            }
+                            .onEnded { _ in
+                                dragLocation = nil
+                                hoveredPersonId = nil
+                            }
+                    )
+                    
+                    // ツールチップ
+                    if let hoveredId = hoveredPersonId,
+                       let node = layoutResult.nodes.first(where: { $0.id == hoveredId }),
+                       let dragLocation = dragLocation {
+                        TooltipView(
+                            personName: node.name,
+                            initials: node.initials,
+                            tag: node.tag,
+                            tagColor: node.color,
+                            iconImageData: node.iconImageData
+                        )
+                        .position(
+                            x: dragLocation.x,
+                            y: dragLocation.y - 50
+                        )
+                    }
+                }
+            }
+            .task(id: geometry.size) {
+                await calculateLayout(size: geometry.size)
+            }
+            .task(id: people.count) {
+                await calculateLayout(size: geometry.size)
+            }
+            .onTapGesture(count: 2) {
+                // ダブルタップでリセット
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                    scale = 1.0
+                    lastScale = 1.0
+                    offset = .zero
+                    lastOffset = .zero
+                }
+            }
+        }
+    }
+    
+    // MARK: - Drawing Functions
+    
+    /// 接続線を描画（極めて細く、透明度高め）
+    private func drawConnections(
+        context: inout GraphicsContext,
+        nodes: [RenderNode]
+    ) {
+        // タグが同じノード同士を接続
+        var connections: [(CGPoint, CGPoint)] = []
+        
+        for (index, node1) in nodes.enumerated() {
+            for node2 in nodes[(index + 1)...] where node1.tag == node2.tag {
+                connections.append((node1.position, node2.position))
+            }
+        }
+        
+        // 接続線を描画
+        for (start, end) in connections {
+            var path = Path()
+            path.move(to: start)
+            path.addLine(to: end)
+            
+            context.stroke(
+                path,
+                with: .color(brandIndigo.opacity(0.2)),
+                lineWidth: 0.5
+            )
+        }
+    }
+    
+    /// ノード（星）を描画
+    private func drawNodes(
+        context: inout GraphicsContext,
+        nodes: [RenderNode],
+        hoveredPersonId: UUID?
+    ) {
+        for node in nodes {
+            let isHovered = node.id == hoveredPersonId
+            let nodeSize = isHovered ? max(node.size * 1.5, 4) : max(node.size, 2)
+            
+            // ノード本体（Electric Indigo、シャープに）
+            var nodePath = Path()
+            nodePath.addEllipse(in: CGRect(
+                x: node.position.x - nodeSize / 2,
+                y: node.position.y - nodeSize / 2,
+                width: nodeSize,
+                height: nodeSize
+            ))
+            
+            // ノードを描画（ブランドカラー）
+            context.fill(nodePath, with: .color(brandIndigo))
+            
+            // ホバー時は発光エフェクト
+            if isHovered {
+                context.stroke(
+                    nodePath,
+                    with: .color(brandIndigo.opacity(0.8)),
+                    lineWidth: 1.0
+                )
+                
+                // 発光エフェクト（シャドウ）
+                var glowPath = Path()
+                glowPath.addEllipse(in: CGRect(
+                    x: node.position.x - nodeSize / 2 - 2,
+                    y: node.position.y - nodeSize / 2 - 2,
+                    width: nodeSize + 4,
+                    height: nodeSize + 4
+                ))
+                
+                context.stroke(
+                    glowPath,
+                    with: .color(brandIndigo.opacity(0.3)),
+                    lineWidth: 2.0
+                )
+            }
+        }
+    }
+    
+    // MARK: - Helper Functions
+    
+    /// 非同期でレイアウトを計算
+    private func calculateLayout(size: CGSize) async {
+        guard size.width > 0 && size.height > 0 else { return }
+        
+        isCalculating = true
+        
+        // バックグラウンドで計算
+        let result = await LayoutEngine.calculateGalaxyLayout(
+            people: people,
+            size: size
+        )
+        
+        // メインスレッドで更新
+        await MainActor.run {
+            self.layoutResult = result
+            self.isCalculating = false
+        }
     }
     
     private func updateHoveredPerson(at location: CGPoint, nodes: [RenderNode]) {
@@ -308,10 +547,6 @@ struct GalaxyView: View {
 }
 
 #Preview {
-    GalaxyView(people: [
-        Person(name: "山田太郎", tags: ["Work"]),
-        Person(name: "佐藤花子", tags: ["Hobby"]),
-        Person(name: "鈴木一郎", tags: ["Family"])
-    ])
-    .frame(height: 600)
+    GalaxyView()
+        .modelContainer(for: [Person.self, Meeting.self, Note.self, TranscriptBlock.self, AgendaItem.self], inMemory: true)
 }

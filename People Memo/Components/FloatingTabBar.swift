@@ -12,6 +12,7 @@ enum Tab: String, CaseIterable {
     case review = "振り返り"
     case people = "人物"
     case calendar = "カレンダー"
+    case galaxy = "Galaxy"
     
     var icon: String {
         switch self {
@@ -19,6 +20,7 @@ enum Tab: String, CaseIterable {
         case .review: return "rectangle.stack"
         case .people: return "person.2"
         case .calendar: return "calendar"
+        case .galaxy: return "sparkles"
         }
     }
 }

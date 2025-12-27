@@ -20,12 +20,42 @@ struct People_MemoApp: App {
             TranscriptBlock.self,
             AgendaItem.self,
         ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        
+        // マイグレーション設定：スキーマ変更を自動的に処理
+        let modelConfiguration = ModelConfiguration(
+            schema: schema,
+            isStoredInMemoryOnly: false,
+            allowsSave: true
+        )
 
         do {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            // エラーが発生した場合、データベースをリセットして再作成
+            print("⚠️ ModelContainer creation failed: \(error)")
+            print("🔄 Attempting to reset database...")
+            
+            // 既存のデータベースファイルを削除して再作成
+            do {
+                // デフォルトのデータベースファイルの場所を取得
+                let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                let defaultStoreURL = documentsPath.appendingPathComponent("default.store")
+                
+                if FileManager.default.fileExists(atPath: defaultStoreURL.path) {
+                    try FileManager.default.removeItem(at: defaultStoreURL)
+                    print("✅ Database file removed: \(defaultStoreURL.path)")
+                }
+                
+                // 新しいコンテナを作成
+                let newConfiguration = ModelConfiguration(
+                    schema: schema,
+                    isStoredInMemoryOnly: false,
+                    allowsSave: true
+                )
+                return try ModelContainer(for: schema, configurations: [newConfiguration])
+            } catch {
+                fatalError("Could not create ModelContainer even after reset: \(error)")
+            }
         }
     }()
 

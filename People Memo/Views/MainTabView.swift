@@ -94,6 +94,8 @@ struct MainTabView: View {
             PersonListView()
         case .calendar:
             CalendarView()
+        case .galaxy:
+            TokyoView()
         }
     }
     

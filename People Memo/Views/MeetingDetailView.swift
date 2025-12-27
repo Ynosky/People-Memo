@@ -12,7 +12,6 @@ struct MeetingDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     let meeting: Meeting
-    @State private var showingAddNote = false
     
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -28,7 +27,7 @@ struct MeetingDetailView: View {
                 FutureMeetingPrepView(meeting: meeting)
             } else {
                 // 過去の会話の場合は通常の詳細画面
-                PastMeetingDetailView(meeting: meeting, showingAddNote: $showingAddNote)
+                PastMeetingDetailView(meeting: meeting)
             }
         }
         .navigationTitle(meeting.isFuture ? "予定詳細" : "会話詳細")
@@ -40,9 +39,6 @@ struct MeetingDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingAddNote) {
-            AddNoteView(meeting: meeting)
-        }
     }
 }
 
@@ -50,7 +46,6 @@ struct PastMeetingDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) var colorScheme
     let meeting: Meeting
-    @Binding var showingAddNote: Bool
     @State private var transcriptText: String = ""
     @State private var isEditingTranscript: Bool = false
     @State private var isHighlightMode: Bool = false
@@ -218,13 +213,6 @@ struct PastMeetingDetailView: View {
                             .foregroundColor(.primary)
                         
                         Spacer()
-                        
-                        Button(action: { showingAddNote = true }) {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 28, design: .rounded))
-                                .foregroundColor(personColor)
-                        }
-                        .bouncy()
                     }
                     .padding(.horizontal, 20)
                     
