@@ -10,9 +10,15 @@ import SwiftData
 
 @main
 struct People_MemoApp: App {
+    @AppStorage("isDarkMode") private var isDarkMode = false
+    
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            Person.self,
+            Meeting.self,
+            Note.self,
+            TranscriptBlock.self,
+            AgendaItem.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -25,7 +31,8 @@ struct People_MemoApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainTabView()
+                .preferredColorScheme(isDarkMode ? .dark : .light)
         }
         .modelContainer(sharedModelContainer)
     }
